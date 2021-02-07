@@ -89,11 +89,47 @@
         Return array(pos - 1)
     End Function
 
+    Public Function ReadWord() As Integer
+        If array.Length <= pos + 1 Then
+            Return -1
+        End If
+        pos += 2
+        Return (CUShort(array(pos - 2)) << 8) + array(pos - 1)
+    End Function
+
+    Public Function ReadDWord() As Integer
+        If array.Length <= pos + 3 Then
+            Return -1
+        End If
+        pos += 4
+        Return (CInt(array(pos - 4)) << 24) + (CInt(array(pos - 3)) << 16) + (CInt(array(pos - 2)) << 8) + array(pos - 1)
+    End Function
+
     Public Overrides Sub WriteByte(ByVal value As Byte)
         If pos >= array.Length Then
             ReDim Preserve array(pos)
         End If
         array(pos) = value
         pos += 1
+    End Sub
+
+    Public Sub WriteWord(ByVal value As UShort)
+        pos += 2
+        If pos >= array.Length Then
+            ReDim Preserve array(pos - 1)
+        End If
+        array(pos - 2) = (value >> 8) And &HFF
+        array(pos - 1) = value And &HFF
+    End Sub
+
+    Public Sub WriteDWord(ByVal value As UInteger)
+        pos += 4
+        If pos >= array.Length Then
+            ReDim Preserve array(pos - 1)
+        End If
+        array(pos - 4) = (value >> 24) And &HFF
+        array(pos - 3) = (value >> 16) And &HFF
+        array(pos - 2) = (value >> 8) And &HFF
+        array(pos - 1) = value And &HFF
     End Sub
 End Class

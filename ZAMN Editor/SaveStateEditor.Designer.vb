@@ -67,8 +67,8 @@ Partial Class SaveStateEditor
         Me.lblNote.Name = "lblNote"
         Me.lblNote.Size = New System.Drawing.Size(201, 62)
         Me.lblNote.TabIndex = 3
-        Me.lblNote.Text = "Note: This will overwrite save state slot 1 and you must load from stot 1 when th" & _
-    "e emulator starts. It currently works with bsnes v084 32bit."
+        Me.lblNote.Text = "Note: This will overwrite save state slot 0 and you must load from stot 0 when th" &
+    "e emulator starts. It currently works with gens."
         '
         'SaveStateEditor
         '

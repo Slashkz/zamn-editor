@@ -2,14 +2,19 @@
 
     Shared bitReader As BitReader
 
+    Shared putbuf As UShort
+    Shared putlen As Byte
+    Shared result As List(Of Byte)
     '   LZSS Parameters
     Const N = 4096 'Sliding Window Length
     Const F = 60 'Length of String
     Const THRESHOLD = 2
     Const NODENIL = N 'End of tree's node
 
-    Shared text_buf(N + F - 1)
-    Shared mathc_position As Integer
+    Const Max = 128
+
+    Shared text_buf(N - F - 1) As Byte
+    Shared match_position As Integer
     Shared match_length As Integer
 
     'Huffman Parameters
@@ -24,6 +29,27 @@
         Dim RSon As Integer
     End Structure
 
+    Shared p_len As Byte() = {
+         &H3, &H4, &H4, &H4, &H5, &H5, &H5, &H5,
+         &H5, &H5, &H5, &H5, &H6, &H6, &H6, &H6,
+         &H6, &H6, &H6, &H6, &H6, &H6, &H6, &H6,
+         &H7, &H7, &H7, &H7, &H7, &H7, &H7, &H7,
+         &H7, &H7, &H7, &H7, &H7, &H7, &H7, &H7,
+         &H7, &H7, &H7, &H7, &H7, &H7, &H7, &H7,
+         &H8, &H8, &H8, &H8, &H8, &H8, &H8, &H8,
+         &H8, &H8, &H8, &H8, &H8, &H8, &H8, &H8
+    }
+
+    Shared p_code As Byte() = {
+         &H0, &H20, &H30, &H40, &H50, &H58, &H60, &H68,
+         &H70, &H78, &H80, &H88, &H90, &H94, &H98, &H9C,
+         &HA0, &HA4, &HA8, &HAC, &HB0, &HB4, &HB8, &HBC,
+         &HC0, &HC2, &HC4, &HC6, &HC8, &HCA, &HCC, &HCE,
+         &HD0, &HD2, &HD4, &HD6, &HD8, &HDA, &HDC, &HDE,
+         &HE0, &HE2, &HE4, &HE6, &HE8, &HEA, &HEC, &HEE,
+         &HF0, &HF1, &HF2, &HF3, &HF4, &HF5, &HF6, &HF7,
+         &HF8, &HF9, &HFA, &HFB, &HFC, &HFD, &HFE, &HFF
+    }
 
     Shared d_code As Byte() = {
          &H0, &H0, &H0, &H0, &H0, &H0, &H0, &H0,
@@ -102,7 +128,23 @@
     Shared getlen As Byte = 0
     Shared getbuf As UInteger = 0
 
-    Shared Sub InitTree()
+    Private Shared Sub PutCode(ByVal l As Integer, ByVal c As Integer)
+        putbuf = putbuf Or (c >> putlen)
+        putlen += l
+        If putlen >= 8 Then
+            result.Add((putbuf >> 8) And &HFF)
+            putlen -= 8
+            If putlen >= 8 Then
+                putlen -= 8
+                result.Add(putbuf And &HFF)
+                putbuf = (c << (l - putlen)) And &HFFFF
+            Else
+                putbuf <<= 8
+            End If
+        End If
+    End Sub
+
+    Private Shared Sub InitTree()
         Dim i As Integer
         For i = N + 1 To N + 256
             Tree(i).LSon = NODENIL
@@ -226,7 +268,7 @@
         k = prnt(c + T)
         '{-search connections from leaf node to the root}
         Do
-            code = code << 1
+            code = code >> 1
             '{-if node's address is odd, output 1 else output 0}
             If (k And 1) > 0 Then
                 code += &H8000
@@ -234,17 +276,23 @@
             len += 1
             k = prnt(k)
         Loop Until k = R
-        'PutCode(len, code)
+        PutCode(len, code)
         update(c)
     End Sub
 
-    Private Shared Sub EncodePosition(ByVal c As UShort)
-        Dim i As UShort
+    Private Shared Sub EncodePosition(ByVal c As Integer)
+        Dim i As Integer
         '//-output upper 6 bits with encoding
         i = c >> 6
-        'PutCode(p_len(i), p_code(i) << 8)
+        PutCode(p_len(i), CUShort(p_code(i)) << 8)
         '  //-output lower 6 bits directly
-        'PutCode(6, (c And &H3F) >> 10)
+        PutCode(6, (c And &H3F) << 10)
+    End Sub
+
+    Private Shared Sub EncodeEnd()
+        If putlen > 0 Then
+            result.Add((putbuf >> 8) And &HFF)
+        End If
     End Sub
 
     Private Shared Function DecodePosition() As UShort
@@ -281,7 +329,7 @@
         Dim result As New List(Of Byte)
         Dim dict(&HFFF) As Byte
         Dim bytesLeft As Integer = s.ReadByte * &H100 + s.ReadByte 'First 2 bytes are the compressed size
-        Dim writeDictPos As Integer = N - F 'The dictionary starts at &HFEE for some reason
+        Dim writeDictPos As Integer = N - F 'The dictionary starts at &HFC4 for some reason
         Dim readDictPos As Integer
         Dim bitsLeft As Integer = 0
         Dim buffer(bytesLeft) As Byte 'Buffer for compressed data
@@ -326,78 +374,88 @@
     End Function
 
     Public Shared Function Compress(ByVal data As Byte()) As Byte()
-        Dim result As New List(Of Byte)(data.Length \ 2) 'Making the default size be half that of the original data
-        Dim dict(&HFFF) As Byte
-        Dim dictIndex As Integer = &HFEE
-        Dim dataIndex As Integer = 0
-        Dim formatByte As Byte
-        Dim formatBitCt As Integer = 0
-        Dim formatByteIndex As Integer = 2 'The first format byte will be after the file size
+        result = New List(Of Byte)(data.Length \ 2) 'Making the default size be half that of the original data
+        Dim dataIndex As Integer = N - F
+        Dim fr(Max) As Integer
+        Dim p(Max) As Integer
+        Dim k, m As Byte
+        putbuf = 0
+        putlen = 0
+        StartHuff()
+        ReDim text_buf(data.Length + text_buf.Length)
+        data.CopyTo(text_buf, dataIndex)
+        For i As Integer = 0 To dataIndex - 1
+            text_buf(i) = 32
+        Next
+        result.Add((data.Length >> 8) And &HFF)
+        result.Add(data.Length And &HFF)
 
-        Dim findDictPos As Integer, findDictLen As Integer
-        Dim findRepSize As Integer, findRepLen As Integer
-
-        result.Add(0) 'The final size will be put here
-        result.Add(0)
-        result.Add(0) 'And one more to hold the first format byte
-        Do Until dataIndex = data.Length
-            formatByte >>= 1
-            formatBitCt += 1
-            FindInDict(dict, data, dataIndex, findDictPos, findDictLen) 'Search for a dictionary match
-            FindRepeat(data, dataIndex, findRepSize, findRepLen) 'Search for a repeating pattern
-            If findRepLen - findRepSize > findDictLen And findRepLen >= 3 Then 'Most efficient to insert a data repeat
-                'Write the data to be repeated
-                For i As Integer = 0 To findRepSize - 1
-                    result.Add(data(dataIndex + i))
-                    formatByte = formatByte Or &H80 'Set the bit in the format byte
-                    If formatBitCt = 8 Then 'If the format byte is full
-                        result(formatByteIndex) = formatByte
-                        formatByte = 0
-                        formatBitCt = 0
-                        formatByteIndex = result.Count
-                        result.Add(0) 'Placeholder for next format byte
+        Do Until dataIndex = text_buf.Length
+            If FindeMatches(dataIndex) Then
+                fr(0) = dataIndex
+                fr(1) = dataIndex + 1
+                m = 2
+                While True
+                    p(m - 2) = match_position
+                    fr(m) = fr(m - 2) + match_length
+                    If (fr(m) < fr(m - 1) + 2) Then
+                        Exit While
                     End If
-                    formatByte >>= 1
-                    formatBitCt += 1
-                Next
-                'Tell it to repeat
-                result.Add(dictIndex And &HFF) 'Write the dictionary pos
-                result.Add(((dictIndex And &HF00) >> 4) + (findRepLen - 3)) 'Write the rest of the pos, and the length
-                For i As Integer = 0 To findRepLen + findRepSize - 1 'Insert the new data to the dictionary
-                    dict((dictIndex + i) And &HFFF) = data(dataIndex + (i Mod findRepSize))
-                Next
-                dictIndex = (dictIndex + findRepLen + findRepSize) And &HFFF
-                dataIndex += findRepLen + findRepSize
-            ElseIf findDictPos > -1 Then 'Insert a load from the dictionary
-                For i As Integer = 0 To findDictLen - 1 'Write the new bytes to the dictionary
-                    dict(dictIndex) = dict((findDictPos + i) And &HFFF)
-                    dictIndex = (dictIndex + 1) And &HFFF
-                Next
-                dataIndex += findDictLen
-                result.Add(findDictPos And &HFF)
-                result.Add(((findDictPos And &HF00) >> 4) + (findDictLen - 3))
+                    m += 1
+                    If ((m + 1) = Max) Then
+                        Exit While
+                    End If
+                    dataIndex = fr(m - 2)
+                    FindeMatches(dataIndex)
+                End While
+
+                If (m And 1) = 0 Then
+                    EncodeChar(text_buf(fr(0)))
+                    'dataIndex += 1
+                End If
+                k = (m + 1) And 1
+                While k < (m - 1)
+                    EncodeChar(255 + (fr(k + 2) - fr(k) - THRESHOLD))
+                    EncodePosition(p(k))
+                    dataIndex = fr(k + 2)
+                    k += 2
+                End While
             Else 'Just insert the byte by itself
-                result.Add(data(dataIndex))
-                dict(dictIndex) = data(dataIndex)
-                dictIndex = (dictIndex + 1) And &HFFF
+                EncodeChar(text_buf(dataIndex))
                 dataIndex += 1
-                formatByte = formatByte Or &H80
-            End If
-            If formatBitCt = 8 Or dataIndex = data.Length Then 'Format byte is full
-                formatByte >>= (8 - formatBitCt) 'If the file has ended, but there is still part of a format byte left
-                result(formatByteIndex) = formatByte 'Insert the format byte to the file
-                formatByte = 0 'Reset it
-                formatBitCt = 0
-                formatByteIndex = result.Count
-                result.Add(0) 'Make a placeholder for the next one
             End If
         Loop
-
-        Dim len As Integer = result.Count - 2 'Don't cout the first two bytes themselves
-        result(0) = len And &HFF
-        result(1) = (len And &HFF00) >> 8
+        EncodeEnd()
         Return result.ToArray()
     End Function
+
+    Private Shared Function FindeMatches(ByVal index As Integer) As Boolean
+        Dim BufPos As Integer
+        Dim TempLen As Byte
+
+        match_length = THRESHOLD - 1
+        If index < N Then
+            BufPos = 0
+        Else
+            BufPos = index - (N - 1)
+        End If
+        While BufPos < index
+            TempLen = 0
+            While ((index + TempLen) < text_buf.Length) AndAlso (text_buf(BufPos + TempLen) = text_buf(index + TempLen)) And (TempLen < F)
+                TempLen += 1
+            End While
+            If TempLen >= match_length Then
+                match_length = TempLen
+                match_position = (index - BufPos - 1) And (N - 1)
+            End If
+            BufPos += 1
+        End While
+        If match_length <= THRESHOLD Then
+            Return False
+        End If
+        Return True
+    End Function
+
 
     'This will find the longest match in the dictionary
     Private Shared Sub FindInDict(ByVal dict As Byte(), ByVal data As Byte(), ByVal index As Integer, ByRef outPos As Integer, ByRef outLen As Integer)
@@ -406,11 +464,11 @@
         For idict As Integer = 0 To dict.Length - 1
             If dict(idict) = data(index) Then
                 Dim i2 As Integer = 0
-                For i2 = 0 To 17
+                For i2 = 0 To F - 1
                     If index + i2 >= data.Length Then Exit For
                     If dict((idict + i2) And &HFFF) <> data(index + i2) Then Exit For
                 Next
-                If i2 > maxMatchCt And i2 > 2 Then
+                If i2 > maxMatchCt And i2 > THRESHOLD Then
                     maxMatchCt = i2
                     maxMatchPos = idict
                 End If
@@ -418,24 +476,5 @@
         Next
         outPos = maxMatchPos
         outLen = maxMatchCt
-    End Sub
-
-    'This will find longest repeating sequence
-    Private Shared Sub FindRepeat(ByVal data As Byte(), ByVal index As Integer, ByRef dataSize As Integer, ByRef totalSize As Integer)
-        Dim maxSize As Integer = 1
-        Dim maxDataSize As Integer = 0
-        For dsize As Integer = 1 To 8
-            Dim tsize As Integer
-            For tsize = dsize To dsize + 17
-                If index + tsize >= data.Length Then Exit For
-                If data(index + tsize) <> data(index + (tsize Mod dsize)) Then Exit For
-            Next
-            If tsize - dsize > maxDataSize Then
-                maxDataSize = tsize - dsize
-                maxSize = dsize
-            End If
-        Next
-        dataSize = maxSize
-        totalSize = maxDataSize
     End Sub
 End Class

@@ -3,8 +3,8 @@
     ' 1 Extra value for the starting victim count
     Private Const ExtraValueCount As Integer = 1
 
-    Private Shared ItemGFX As Integer() = {0, 1, 2, 3, 18, 19, 11, 12, 13, 16, 17, 20, 21, 4, 5, 6, 7, 8, 15, 22, 23, 24}
-    Private Shared ItemRAM As Integer() = {0, 2, 4, 6, 8, 10, 12, 14, 16, 20, 22, 24, 26, 64, 66, 68, 70, 72, 78, 80, 82, 84}
+    Private Shared ItemGFX As Integer() = {0, 1, 2, 3, 18, 19, 11, 12, 13, 16, 17, 20, 4, 5, 6, 7, 8, 9, 15, 22, 24}
+    Private Shared ItemRAM As Integer() = {0, 2, 4, 6, 8, 10, 12, 14, 16, 20, 22, 24, 26, 28, 30, 32, 34, 36, 40, 42, 46}
 
     Public values As New List(Of NumericUpDown)
     Public extraValues As New List(Of NumericUpDown)
@@ -57,7 +57,7 @@
             End If
 
             y += 26
-            If l = 12 Then
+            If l = 11 Then
                 x = 120
                 y = 12
             End If
@@ -82,22 +82,25 @@
         Dim fs As New IO.FileStream(fileName, IO.FileMode.Create, IO.FileAccess.Write, IO.FileShare.Read)
         fs.Write(baseState, 0, baseState.Length)
         fs.Seek(RAMIndex + Pointers.RAMLevelNum, IO.SeekOrigin.Begin)
-        fs.WriteByte(lvl.num)
+        fs.WriteByte((lvl.num - 1) And &HFF) 'Becase game increment level num after load state
+        'fs.Seek(RAMIndex + Pointers.FirstPlayerStarted, IO.SeekOrigin.Begin)
+        'fs.WriteByte(0) 'Disable First Player Items Init
+        'fs.WriteByte(0)
         For l As Integer = 0 To values.Count - 1
             fs.Seek(RAMIndex + Pointers.RAMWeaponQty + ItemRAM(l), IO.SeekOrigin.Begin)
-            Dim value As Integer = CInt("&H" & values(l).Value.ToString())
-            fs.WriteByte(value Mod &H100)
+            Dim value As Integer = CInt(values(l).Value.ToString())
             fs.WriteByte(value \ &H100)
+            fs.WriteByte(value Mod &H100)
         Next
 
         For l As Integer = 0 To extraValues.Count - 1
-            Dim value As Integer = CInt("&H" & extraValues(l).Value.ToString())
+            Dim value As Integer = CInt(extraValues(l).Value.ToString())
             fs.Seek(RAMIndex + Pointers.RAMStartingVictims, IO.SeekOrigin.Begin)
-            fs.WriteByte(value Mod &H100)
             fs.WriteByte(value \ &H100)
+            fs.WriteByte(value Mod &H100)
             fs.Seek(RAMIndex + Pointers.RAMRemainingVictims, IO.SeekOrigin.Begin)
-            fs.WriteByte(value Mod &H100)
             fs.WriteByte(value \ &H100)
+            fs.WriteByte(value Mod &H100)
         Next
 
         fs.Close()

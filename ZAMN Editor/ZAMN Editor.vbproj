@@ -215,6 +215,7 @@
       <SubType>Form</SubType>
     </Compile>
     <Compile Include="Pointers.vb" />
+    <Compile Include="PointersSNES.vb" />
     <Compile Include="RecentFilesList.vb">
       <SubType>Component</SubType>
     </Compile>
@@ -496,8 +497,13 @@
     <None Include="Resources\Icons\Clear2.png" />
     <None Include="Resources\Circle.PNG" />
     <None Include="Resources\Caret.PNG" />
+    <None Include="Resources\Icons\MoveUp.png" />
+    <None Include="Resources\Icons\MoveDown.png" />
+    <None Include="Resources\Icons\MoveTop.png" />
+    <None Include="Resources\Icons\MoveBottom.png" />
     <Content Include="Secret.ICO" />
   </ItemGroup>
+  <ItemGroup />
   <Import Project="$(MSBuildToolsPath)\Microsoft.VisualBasic.targets" />
   <!-- To modify your build process, add your task inside one of the targets below and uncomment it. 
        Other similar extension points exist, see Microsoft.Common.targets.

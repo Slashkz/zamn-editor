@@ -50,6 +50,7 @@
             Next
             VictimImages.Add(img)
         Loop
+        VictimImages.Add(My.Resources.UnknownVictim)
         s.Close()
         s2.Close()
     End Sub

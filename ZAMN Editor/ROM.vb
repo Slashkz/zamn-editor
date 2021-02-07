@@ -12,7 +12,7 @@ Public Class ROM
 
     Public hacked As Boolean = False
 
-    Private Shared offsetPos As Integer() = {&H1C, &H1E, &H20, &H36, &H3A, &H3E}
+    Private Shared offsetPos As Integer() = {&H18, &H1C, &H20, &H36, &H3A, &H3E}
 
     Public Sub New(ByVal path As String)
 #If Not DEBUG Then
@@ -20,10 +20,12 @@ Public Class ROM
 #End If
         Me.path = path
         Dim s As New FileStream(path, FileMode.Open, FileAccess.ReadWrite, FileShare.Read)
-        'If HasHeader(s) Then
-        'RemoveHeader(s)
-        'MsgBox("This ROM had a header which was automatically removed")
-        'End If
+        Dim p As Byte() = {0, 0, 0, 0}
+        For i As Integer = 0 To 3
+            s.Seek(Pointers.MusicResource(i), IO.SeekOrigin.Begin)
+            s.Read(p, 0, 4)
+            Pointers.MusicResourcePtrs(i) = Pointers.ToInteger(p, 0)
+        Next
         s.Seek(Pointers.LevelPointers, SeekOrigin.Begin)
         regLvlCount = 49
         maxLvlNum = regLvlCount
@@ -94,27 +96,20 @@ Public Class ROM
 #End If
     End Sub
 
-    Public Shared Function HasHeader(ByVal s As IO.Stream) As Boolean
-        Dim extraBytes As Integer = s.Length Mod &H8000L
-        Return extraBytes = &H200
-    End Function
-
-    Public Shared Sub RemoveHeader(ByVal s As IO.Stream)
-        Dim extraBytes As Integer = s.Length Mod &H8000L
-        s.Seek(0, IO.SeekOrigin.Begin)
-        InsertBytes(s, -extraBytes)
-        s.SetLength(s.Length - extraBytes)
-    End Sub
-
     Public Shared Sub InsertBytes(ByVal s As IO.Stream, ByVal byteCount As Integer)
         If byteCount < 0 Then
             s.Seek(-byteCount, IO.SeekOrigin.Current)
         End If
-        Dim rest(s.Length - s.Position - 1) As Byte
+        Dim rest(Pointers.EndOfHeaders - s.Position - 1) As Byte
         Dim start As Long = s.Position
         s.Read(rest, 0, rest.Length)
         s.Seek(start + byteCount, IO.SeekOrigin.Begin)
         s.Write(rest, 0, rest.Length)
+        'For i As Integer = 0 To 3
+        'Pointers.MusicResourcePtrs(i) += byteCount
+        's.Seek(Pointers.MusicResource(i), IO.SeekOrigin.Begin)
+        's.Write(Pointers.ToArray(Pointers.MusicResourcePtrs(i)), 0, 4)
+        'Next
     End Sub
 
     Public Function GetLevelTitle(ByVal s As Stream, ByVal ptr As Integer) As String
@@ -139,7 +134,7 @@ Public Class ROM
     Public Function GetLevel(ByVal num As Integer, ByVal name As String) As Level
         Dim s As New FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read)
         GotoLvlPtr(num, s)
-        Dim l As New Level(s, name, num)
+        Dim l As New Level(s, name, num, False, Nothing)
         s.Close()
         Return l
     End Function
@@ -166,7 +161,7 @@ Public Class ROM
     End Sub
 
     Public Sub FixTileAnim(ByVal s As Stream)
-        s.Seek(&H3C, SeekOrigin.Current)
+        s.Seek(&H42, SeekOrigin.Current)
         Dim mainPointerPos As Integer = -1
         Dim mainPointer As Integer
         Dim bossType As Integer = Pointers.ReadPointer(s)
@@ -190,21 +185,19 @@ Public Class ROM
             Dim subPointerCt As Integer = -1
             Do
                 subPointerCt += 1
-                subPointer = s.ReadByte() + s.ReadByte() * &H100
+                subPointer = (s.ReadByte() << 24) + (s.ReadByte() << 16) + (s.ReadByte() << 8) + s.ReadByte()
             Loop While subPointer > 0
             For i As Integer = 1 To subPointerCt
                 subPointers.Add(s.Position)
                 Dim value As Integer
                 Do
-                    value = s.ReadByte() + s.ReadByte() * &H100
+                    value = s.ReadByte() * &H100 + s.ReadByte()
                 Loop While value < &HFFFE
             Next
 
             s.Seek(mainPointer, SeekOrigin.Begin)
             For Each p As Integer In subPointers
-                p = p Mod &H10000
-                s.WriteByte(p Mod &H100)
-                s.WriteByte(p \ &H100)
+                s.Write(Pointers.ToArray(p), 0, 4)
             Next
         End If
     End Sub
@@ -225,46 +218,60 @@ Public Class ROM
         Try
 #End If
         Dim data As LevelWriteData = lvl.GetWriteData()
-        'Dim fs2 As New FileStream(Application.StartupPath + "\lvl.bin", FileMode.Create)
-        'fs2.Write(data.data, 0, data.data.Length)
-        'fs2.Close()
         Dim ptrs As DList(Of Integer, Integer) = GetAllLvlPtrs(fs)
         ptrs.SortBySecond()
         Dim lvlPtr As Integer = GetLvlPtr(lvl.num, fs)
         fs.Seek(lvlPtr + 4, SeekOrigin.Begin) 'Get the pointer to the level background data
         Pointers.GoToPointer(fs)
-        Dim SNESAddr As Byte() = Pointers.ToArray(fs.Position)
-        data.data(4) = SNESAddr(0)
-        data.data(5) = SNESAddr(1)
-        data.data(6) = SNESAddr(2)
+        Dim Addr As Byte() = Pointers.ToArray(fs.Position)
+        data.data(4) = Addr(0)
+        data.data(5) = Addr(1)
+        data.data(6) = Addr(2)
+        data.data(7) = Addr(3)
+        Dim map(lvl.Width * lvl.Height * 2 - 1) As Byte
         For y As Integer = 0 To lvl.Height - 1
             For x As Integer = 0 To lvl.Width - 1
-                fs.WriteByte(lvl.Tiles(x, y))
-                fs.WriteByte(0)
+                map(y * lvl.Width * 2 + x * 2) = lvl.Tiles(x, y) >> 8
+                map(y * lvl.Width * 2 + x * 2 + 1) = lvl.Tiles(x, y) And &HFF
             Next
+        Next
+        'Compress Level Map
+        Dim packedMap As Byte() = ZAMNCompress.Compress(map)
+        For i As Integer = 0 To packedMap.Length - 1
+            fs.WriteByte(packedMap(i))
         Next
         fs.Seek(lvlPtr, SeekOrigin.Begin)
         For l As Integer = 0 To 5
-            SNESAddr = Pointers.ToArray(data.addrOffsets(l) + lvlPtr)
-            data.data(offsetPos(l)) = SNESAddr(0)
-            data.data(offsetPos(l) + 1) = SNESAddr(1)
+            Addr = Pointers.ToArray(data.addrOffsets(l) + lvlPtr)
+            data.data(offsetPos(l)) = Addr(0)
+            data.data(offsetPos(l) + 1) = Addr(1)
+            data.data(offsetPos(l) + 2) = Addr(2)
+            data.data(offsetPos(l) + 3) = Addr(3)
         Next
         Dim lenDiff As Integer = 0
         If ptrs.L2.LastIndexOf(lvlPtr) < ptrs.L2.Count - 1 Then
             lenDiff = data.data.Length - (ptrs.L2(ptrs.L2.LastIndexOf(lvlPtr) + 1) - lvlPtr)
+            If lenDiff Mod 2 <> 0 Then
+                lenDiff += 1
+            End If
             InsertBytes(fs, lenDiff)
         End If
         fs.Seek(lvlPtr, SeekOrigin.Begin)
         fs.Write(data.data, 0, data.data.Length)
-        fs.Seek(lvlPtr + &H3C, SeekOrigin.Begin)
+        fs.Seek(lvlPtr + &H42, SeekOrigin.Begin)
         Dim tempptr As Integer
         Dim bossIndex As Integer = 0
         Do 'set pointers for special boss monsters
             tempptr = Pointers.ReadPointer(fs)
             If Pointers.SpBossMonsters.Contains(tempptr) And bossIndex < data.bossDataPtr.Count Then
-                fs.Write(Pointers.ToArray(data.bossDataPtr(bossIndex) + lvlPtr), 0, 4)
+                If tempptr = Pointers.SpBossMonsters(1) Then
+                    fs.Write(Pointers.ToArray(data.bossDataPtr(bossIndex) + lvlPtr), 0, 4)
+                Else
+                    'fs.Write(Pointers.ToArray(data.data(data.bossDataPtr(bossIndex))), 0, 4)
+                    fs.Seek(4, SeekOrigin.Current)
+                End If
                 bossIndex += 1
-            ElseIf tempptr = -1 Then
+            ElseIf tempptr = 0 Then
                 Exit Do
             Else
                 fs.Seek(4, SeekOrigin.Current)
@@ -273,57 +280,53 @@ Public Class ROM
         'Hacky way to make sure the tile animations don't get messed up
         fs.Seek(lvlPtr, SeekOrigin.Begin)
         FixTileAnim(fs)
-        Dim donePtrs As New List(Of Integer)
-        For l As Integer = ptrs.L2.LastIndexOf(lvlPtr) + 1 To ptrs.L2.Count - 1 'update level pointers
-            fs.Seek(Pointers.LevelPointers + 2 + ptrs.L1(l) * 2, SeekOrigin.Begin)
-            Dim NewPtr As Integer = fs.ReadByte + fs.ReadByte * &H100 + lenDiff
-            fs.Seek(-2, SeekOrigin.Current)
-            fs.WriteByte(NewPtr Mod &H100)
-            fs.WriteByte(NewPtr \ &H100)
-            If Not donePtrs.Contains(NewPtr) Then
-                donePtrs.Add(NewPtr)
-                NewPtr += &HF0000
-                fs.Seek(NewPtr, SeekOrigin.Begin)
-                Dim NewPtr2 As Integer
-                For m As Integer = 0 To 5 'Update pointers within level files
-                    fs.Seek(NewPtr + offsetPos(m), SeekOrigin.Begin)
-                    NewPtr2 = fs.ReadByte + fs.ReadByte * &H100 + lenDiff
+            Dim donePtrs As New List(Of Integer)
+            For l As Integer = ptrs.L2.LastIndexOf(lvlPtr) + 1 To ptrs.L2.Count - 1 'update level pointers
+            fs.Seek(Pointers.LevelPointers + ptrs.L1(l) * 4, SeekOrigin.Begin)
+            Dim NewPtr As Integer = (fs.ReadByte << 24) + (fs.ReadByte << 16) + (fs.ReadByte << 8) + fs.ReadByte + lenDiff
+                fs.Seek(-4, SeekOrigin.Current)
+                fs.Write(Pointers.ToArray(NewPtr), 0, 4)
+                If Not donePtrs.Contains(NewPtr) Then
+                    donePtrs.Add(NewPtr)
+                    fs.Seek(NewPtr, SeekOrigin.Begin)
+                    Dim NewPtr2 As Integer
+                    For m As Integer = 0 To 5 'Update pointers within level files
+                        fs.Seek(NewPtr + offsetPos(m), SeekOrigin.Begin)
+                        NewPtr2 = (fs.ReadByte << 24) + (fs.ReadByte << 16) + (fs.ReadByte << 8) + fs.ReadByte + lenDiff
                     If NewPtr2 > 0 And NewPtr2 > lenDiff Then
-                        fs.Seek(-2, SeekOrigin.Current)
-                        fs.WriteByte(NewPtr2 Mod &H100)
-                        fs.WriteByte(NewPtr2 \ &H100)
+                        fs.Seek(-4, SeekOrigin.Current)
+                        fs.Write(Pointers.ToArray(NewPtr2), 0, 4)
                     End If
                 Next
-                fs.Seek(NewPtr + &H3C, SeekOrigin.Begin)
-                Do 'Update special boss monsters
-                    NewPtr2 = Pointers.ReadPointer(fs)
-                    If Pointers.SpBossMonsters.Contains(NewPtr2) Then
+                    fs.Seek(NewPtr + &H42, SeekOrigin.Begin)
+                    Do 'Update special boss monsters
+                        NewPtr2 = Pointers.ReadPointer(fs)
+                    If Pointers.SpBossMonsters.Contains(NewPtr2) And NewPtr2 = Pointers.SpBossMonsters(1) Then
                         Dim NewPtr3 As Integer = Pointers.ReadPointer(fs) + lenDiff
                         fs.Seek(-4, SeekOrigin.Current)
                         fs.Write(Pointers.ToArray(NewPtr3), 0, 4)
-                        If NewPtr2 = Pointers.SpBossMonsters(1) And NewPtr3 > NewPtr Then 'Update the tile animation pointers
+                        If NewPtr3 > NewPtr Then 'Update the tile animation pointers
                             Dim prevPos As Integer = fs.Position
                             fs.Seek(NewPtr3, SeekOrigin.Begin)
-                            NewPtr2 = fs.ReadByte + fs.ReadByte * &H100 + lenDiff
+                            NewPtr2 = (fs.ReadByte << 24) + (fs.ReadByte << 16) + (fs.ReadByte << 8) + fs.ReadByte + lenDiff
                             While NewPtr2 > 0 And NewPtr2 > lenDiff
-                                fs.Seek(-2, SeekOrigin.Current)
-                                fs.WriteByte(NewPtr2 Mod &H100)
-                                fs.WriteByte(NewPtr2 \ &H100)
-                                NewPtr2 = fs.ReadByte + fs.ReadByte * &H100 + lenDiff
+                                fs.Seek(-4, SeekOrigin.Current)
+                                fs.Write(Pointers.ToArray(NewPtr2), 0, 4)
+                                NewPtr2 = (fs.ReadByte << 24) + (fs.ReadByte << 16) + (fs.ReadByte << 8) + fs.ReadByte + lenDiff
                             End While
                             fs.Seek(prevPos, SeekOrigin.Begin)
                         End If
-                    ElseIf NewPtr2 = -1 Then
+                    ElseIf NewPtr2 = 0 Then
                         Exit Do
                     Else
                         fs.Seek(4, SeekOrigin.Current)
-                    End If
-                Loop
-            End If
-        Next
-        fs.SetLength(ROMSize)
-        names(lvl.num) = GetLevelTitle(fs, lvlPtr)
-        OpenLevel.SetName(lvl.num, names(lvl.num))
+                        End If
+                    Loop
+                End If
+            Next
+            'fs.SetLength(ROMSize)
+            names(lvl.num) = GetLevelTitle(fs, lvlPtr)
+            OpenLevel.SetName(lvl.num, names(lvl.num))
 #If Not DEBUG Then
         Catch ex As Exception
             MsgBox("Error saving level." & Environment.NewLine & ex.Message, MsgBoxStyle.Critical, "Error")

@@ -34,9 +34,7 @@
 
     Private Sub btnSave_Click(ByVal sender As Object, ByVal e As System.EventArgs) Handles btnSave.Click
         ed.EdControl.lvl.page1 = TitlePageEdCtrl1.tp
-        ed.EdControl.lvl.page1.Sort()
         ed.EdControl.lvl.page2 = TitlePageEdCtrl2.tp
-        ed.EdControl.lvl.page2.Sort()
         ed.EdControl.UndoMgr.ForceDirty()
         Me.Close()
     End Sub
@@ -68,10 +66,17 @@
         btnRefresh.Enabled = enabled
         btnAlignCenter.Enabled = enabled
         btnAlignMiddle.Enabled = enabled
+        btnMoveUp.Enabled = enabled
+        btnMoveDown.Enabled = enabled
+        btnMoveTop.Enabled = enabled
+        btnMoveBottom.Enabled = enabled
         nudPlt.Enabled = enabled Or chkPltAll.Checked
         If curWord IsNot Nothing Then
             updating = True
             txtWord.Text = curWord.ToString
+            If curWord.font > 3 Then
+                curWord.font = curWord.font / 2 'may be you import snes levels
+            End If
             nudPlt.Value = curWord.font
             updating = False
             If curCtrl.AdvancedEditing And curCtrl.selectedChar > -1 And Not curCtrl.inserting Then
@@ -175,18 +180,18 @@
         My.Settings.TitleAdvanced = chkAdvancedEditing.Checked
     End Sub
 
-    Public Shared TextTable As String() = {"NT", "TH", "TE", "STE", "IT", "ET", "STI", "STL", "STR", "RTI", "RTH", "TO", "NTS", "RTY", "T", "ITA", "NTA", "PTS", _
-                                    "0", "1", "2", "3", "4", "5", "6", "7", "8", "9", "RO", "Q", _
-                                    "A", "B", "C", "D", "E", "F", "G", "H", "J", "K", "L", "M", "N", "O", _
-                                    "P", "R", "S", "U", "EI", "LI", "X", "Y", "Z", "RE", "RS", "HTM", _
-                                    "I", "!", "FE", "FO", "LE", "W", _
+    Public Shared TextTable As String() = {"NT", "TH", "TE", "STE", "IT", "ET", "STI", "STL", "STR", "RTI", "RTH", "TO", "NTS", "RTY", "T", "ITA", "NTA", "PTS",
+                                    "0", "1", "2", "3", "4", "5", "6", "7", "8", "9", "RO", "Q",
+                                    "A", "B", "C", "D", "E", "F", "G", "H", "J", "K", "L", "M", "N", "O",
+                                    "P", "R", "S", "U", "EI", "LI", "X", "Y", "Z", "RE", "RS", "HTM",
+                                    "I", "!", "FE", "FO", "LE", "W",
                                     "VE", "V", " ", "VEL", "RR", "VEI"}
 
-    Public Shared ByteTable As Integer() = {&H21, &H22, &H23, &H24, &H25, &H26, &H27, &H27, &H7127, &H28, &H7228, &H29, &H772A, &H2B6A, &H2D, &H2E, &H2E7B, &H772F, _
-                                     &H30, &H31, &H32, &H33, &H34, &H35, &H36, &H37, &H38, &H39, &H3A6A, &H3B, _
-                                     &H41, &H42, &H43, &H44, &H45, &H46, &H47, &H48, &H4A, &H4B, &H4C, &H4D, &H4E, &H4F, _
-                                     &H50, &H51, &H53, &H55, &H56, &H57, &H58, &H59, &H5A, &H5B6A, &H5C6A, &H5D7473, _
-                                     &H64, &H67, &H6968, &H7A68, &H6D6C, &H6F6E, _
+    Public Shared ByteTable As Integer() = {&H21, &H22, &H23, &H24, &H25, &H26, &H27, &H27, &H7127, &H28, &H7228, &H29, &H772A, &H2B6A, &H2D, &H2E, &H2E7B, &H772F,
+                                     &H30, &H31, &H32, &H33, &H34, &H35, &H36, &H37, &H38, &H39, &H3A6A, &H3B,
+                                     &H41, &H42, &H43, &H44, &H45, &H46, &H47, &H48, &H4A, &H4B, &H4C, &H4D, &H4E, &H4F,
+                                     &H50, &H51, &H53, &H55, &H56, &H57, &H58, &H59, &H5A, &H5B6A, &H5C6A, &H5D7473,
+                                     &H64, &H67, &H6968, &H7A68, &H6D6C, &H6F6E,
                                      &H7675, &H75, &H7D, &H647675, &H5251, &H647675}
 
     Public Shared TextTableR As String() = {"E", "I", "O", "R", "S"}
@@ -229,4 +234,19 @@
         Return result
     End Function
 
+    Private Sub btnMoveUp_Click(sender As Object, e As EventArgs) Handles btnMoveUp.Click
+        curCtrl.MoveUp()
+    End Sub
+
+    Private Sub btnMoveDown_Click(sender As Object, e As EventArgs) Handles btnMoveDown.Click
+        curCtrl.MoveDown()
+    End Sub
+
+    Private Sub btnMoveTop_Click(sender As Object, e As EventArgs) Handles btnMoveTop.Click
+        curCtrl.MoveTop()
+    End Sub
+
+    Private Sub btnMoveBottom_Click(sender As Object, e As EventArgs) Handles btnMoveBottom.Click
+        curCtrl.MoveBottom()
+    End Sub
 End Class

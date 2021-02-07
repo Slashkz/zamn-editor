@@ -19,11 +19,11 @@
                 Me.WindowState = FormWindowState.Maximized
             End If
         End If
-        EditingTools = New Tool() {New PaintbrushTool(Me), New TileSuggestTool(Me), New RectangleSelectTool(Me), New PencilSelectTool(Me), _
+        EditingTools = New Tool() {New PaintbrushTool(Me), New TileSuggestTool(Me), New RectangleSelectTool(Me), New PencilSelectTool(Me),
                                    New TileSelectTool(Me), New ItemTool(Me), New VictimTool(Me), New NRMonsterTool(Me), New MonsterTool(Me), New BossMonsterTool(Me),
                                    New SpriteTool(Me)}
-        LevelItems = New ToolStripItem() {FileSave, SaveTool, EditPaste, PasteTool, EditSelectAll, EditSelectNone, ViewGrid, ViewNextFrame, ViewRestartAnimation, _
-                                          ViewPriority, ViewRespawnAreas, LevelExport, LevelImport, LevelCopy, LevelPaste, LevelEditTitle, LevelSettingsM, LevelSaveAsPNG}
+        LevelItems = New ToolStripItem() {FileSave, SaveTool, EditPaste, PasteTool, EditSelectAll, EditSelectNone, ViewGrid, ViewNextFrame, ViewRestartAnimation,
+                                          ViewPriority, ViewRespawnAreas, LevelExport, LevelImport, LevelImportSNES, LevelCopy, LevelPaste, LevelEditTitle, LevelSettingsM, LevelSaveAsPNG}
         TilePaste = New PasteTilesTool(Me)
         TileSuggestList.LoadAll()
         If My.Settings.RecentROMs <> "" Then
@@ -95,7 +95,7 @@
                     levelOpened = True
                     EdControl = New LvlEdCtrl
                     updateTab = False
-                    Dim tp As TabPage = Tabs.AddXPage(If(l.name.StartsWith("Level"), Mid(l.name, 1, InStrN(l.name, " ", 2) - 2), _
+                    Dim tp As TabPage = Tabs.AddXPage(If(l.name.StartsWith("Level"), Mid(l.name, 1, InStrN(l.name, " ", 2) - 2),
                                                       If(l.name.StartsWith("ERROR:"), "ERROR", l.name)))
                     tp.Controls.Add(EdControl)
                     EdControl.Dock = DockStyle.Fill
@@ -142,13 +142,14 @@
 
     Private Sub EmulatorFromLevel_Click(ByVal sender As System.Object, ByVal e As System.EventArgs) Handles EmulatorFromLevel.Click
         Dim emuName As String = LCase(Mid(My.Settings.Emulator, InStrRev(My.Settings.Emulator, "\") + 1))
-        Dim outputFile As String = Mid(r.path, 1, InStrRev(r.path, ".") - 1)
-        If emuName.Contains("bsnes") Then
-            If SaveStateEditor.ShowDialog(EdControl.lvl, My.Resources.BSNES, Pointers.RAMStartBsnes, outputFile & "-1.bst") = Windows.Forms.DialogResult.OK Then
+        Dim outputFile As String = Mid(My.Settings.Emulator, 1, InStrRev(My.Settings.Emulator, "\")) & LCase(Mid(r.path, InStrRev(r.path, "\") + 1))
+        outputFile = outputFile.Remove(InStrRev(outputFile, ".") - 1)
+        If emuName.Contains("gens") Or emuName.Contains("fusion") Then
+            If SaveStateEditor.ShowDialog(EdControl.lvl, My.Resources.BSNES, Pointers.RAMStartGens, outputFile & ".gs0") = Windows.Forms.DialogResult.OK Then
                 EmulatorRunROM_Click(sender, e)
             End If
         Else
-            MsgBox("Save state generation is only supported for bsnes v084.")
+            MsgBox("Save state generation is only supported for gens.")
         End If
     End Sub
 
@@ -296,6 +297,25 @@
         End If
     End Sub
 
+    Private Sub LevelImportSNES_Click(ByVal sender As System.Object, ByVal e As System.EventArgs) Handles LevelImportSNES.Click
+        If ImportLevelSNES.ShowDialog = Windows.Forms.DialogResult.OK Then
+            Dim fs As New IO.FileStream(ImportLevelSNES.FileName, IO.FileMode.Open, IO.FileAccess.Read)
+            Dim romStream As New IO.FileStream(r.path, IO.FileMode.Open, IO.FileAccess.Read, IO.FileShare.Read)
+            Dim newLvl As New Level(fs, EdControl.lvl.name, EdControl.lvl.num, True, romStream, True)
+            fs.Close()
+            romStream.Close()
+
+            If newLvl.Width * newLvl.Height > EdControl.lvl.Width * EdControl.lvl.Height Then
+                If MsgBox("You are importing a level with a background that is bigger than the current level. This will overwrite background data from a different level. Are you sure you want to continue?", MsgBoxStyle.YesNo) = MsgBoxResult.No Then
+                    Return
+                End If
+            End If
+            EdControl.lvl = newLvl
+            UpdateEdControl()
+            EdControl.TilePicker.LoadTileset(EdControl.lvl.tileset)
+        End If
+    End Sub
+
     Private Sub LevelExport_Click(ByVal sender As System.Object, ByVal e As System.EventArgs) Handles LevelExport.Click
         If ExportLevel.ShowDialog = Windows.Forms.DialogResult.OK Then
             Dim data As Byte() = EdControl.lvl.ToFile()
@@ -306,14 +326,14 @@
     End Sub
 
     Private Sub LevelCopy_Click(ByVal sender As System.Object, ByVal e As System.EventArgs) Handles LevelCopy.Click
-        Clipboard.SetText(ZAMNClip.ToClip("L" & ZAMNClip.ToText(EdControl.lvl.ToFile())))
+        Clipboard.SetText(ZAMNClip.ToClip("LS" & ZAMNClip.ToText(EdControl.lvl.ToFile())))
     End Sub
 
     Private Sub LevelPaste_Click(ByVal sender As System.Object, ByVal e As System.EventArgs) Handles LevelPaste.Click
         If Not ZAMNClip.IsClip(Clipboard.GetText) Then Return
         Dim txt As String = ZAMNClip.FromClip(Clipboard.GetText)
-        If Not txt.StartsWith("L") Then Return
-        Dim data As Byte() = ZAMNClip.FromText(Mid(txt, 2))
+        If Not txt.StartsWith("LS") Then Return
+        Dim data As Byte() = ZAMNClip.FromText(Mid(txt, 3))
         Dim fs As New ByteArrayStream(data)
         Dim romStream As New IO.FileStream(r.path, IO.FileMode.Open, IO.FileAccess.Read, IO.FileShare.Read)
         Dim newLvl As New Level(fs, EdControl.lvl.name, EdControl.lvl.num, True, romStream)
@@ -359,11 +379,12 @@
     End Sub
 
     Private Sub HelpAbout_Click(ByVal sender As System.Object, ByVal e As System.EventArgs) Handles HelpAbout.Click
-        MsgBox("ZAMN Editor Beta v" & Application.ProductVersion & Environment.NewLine & Environment.NewLine & _
-               "Credits:" & Environment.NewLine & _
-               "Programming: Piranhaplant" & Environment.NewLine & _
-               "Tileset suggest lists: Droter" & Environment.NewLine & _
-               "Icons: Silk Icon set http://www.famfamfam.com/lab/icons/silk/" & Environment.NewLine & Environment.NewLine & _
+        MsgBox("ZAMN Editor Beta v" & Application.ProductVersion & Environment.NewLine & Environment.NewLine &
+               "Credits:" & Environment.NewLine &
+               "Programming: Piranhaplant" & Environment.NewLine &
+               "Modified for SMD: Marat" & Environment.NewLine &
+               "Tileset suggest lists: Droter" & Environment.NewLine &
+               "Icons: Silk Icon set http://www.famfamfam.com/lab/icons/silk/" & Environment.NewLine & Environment.NewLine &
                "Copyright © 2017 Piranhaplant", MsgBoxStyle.Information, "About")
     End Sub
 
@@ -766,4 +787,5 @@
     Private Sub DebugFixTileAnim_Click(sender As System.Object, e As System.EventArgs) Handles DebugFixTileAnim.Click
         r.FixTileAnim()
     End Sub
+
 End Class

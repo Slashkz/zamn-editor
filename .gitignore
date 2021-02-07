@@ -3,3 +3,4 @@ bin/
 obj/
 *.sfc
 *.smc
+/.vs/ZAMN Editor/v15/Server/sqlite3

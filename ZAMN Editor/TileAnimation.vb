@@ -13,14 +13,14 @@ Public Class TileAnimation
         Me.tileset = tileset
         Dim i As Integer = 0
         Dim value As Integer = -1
-        Do While value <> 0 And i < tileAnimBoss.exData.Length - 1
-            value = tileAnimBoss.exData(i) Or tileAnimBoss.exData(i + 1) Or tileAnimBoss.exData(i + 2) Or tileAnimBoss.exData(i + 3)
+        Do While value <> 0 And i < tileAnimBoss.exData.Length - 1 'подсчёт поинтеров на анимацию
+            value = CInt(tileAnimBoss.exData(i) << 24) + CInt(tileAnimBoss.exData(i + 1) << 16) + CInt(tileAnimBoss.exData(i + 2) << 8) + tileAnimBoss.exData(i + 3)
             i += 4
         Loop
 
         Dim curAnim As New List(Of UShort)
         Do While i < tileAnimBoss.exData.Length - 1
-            value = tileAnimBoss.exData(i + 1) * &H100 + tileAnimBoss.exData(i)
+            value = tileAnimBoss.exData(i) * &H100 + tileAnimBoss.exData(i + 1)
             If value >= &HFFFE Then
                 loopAnim.Add(value = &HFFFF)
                 animations.Add(curAnim)
@@ -80,7 +80,7 @@ Public Class TileAnimation
                 If animTile > -1 And animTile < tileset.LinGFX.Length Then
                     Dim pos As TilePos = tilePositions(i)(t)
                     data = tileset.images(pos.tileNum).LockBits(New Rectangle(0, 0, 64, 64), ImageLockMode.WriteOnly, PixelFormat.Format8bppIndexed)
-                    SMDGFX.DrawTile(data, pos.x * 8, pos.y * 8, tileset.map16(pos.tileNum * &H80 + (pos.y * 8 + pos.x) * 2 + 1) And &HFE, animTile, tileset.LinGFX)
+                    SMDGFX.DrawTile(data, pos.x * 8, pos.y * 8, tileset.map16(pos.tileNum * &H80 + (pos.y * 8 + pos.x) * 2) And &HFE, animTile, tileset.LinGFX)
                     tileset.images(pos.tileNum).UnlockBits(data)
                     animated = True
                 End If

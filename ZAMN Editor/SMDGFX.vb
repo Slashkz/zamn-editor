@@ -126,8 +126,8 @@ Public Class SMDGFX
 
     Public Shared Sub DrawWithPlt(ByVal g As Graphics, ByVal x As Integer, ByVal y As Integer, ByVal bmp As Bitmap, ByVal plt As Color(), ByVal colorIdx As Integer, ByVal colorCount As Integer)
         Dim pal As ColorPalette = bmp.Palette
-        For l As Integer = 0 To colorCount - 1
-            pal.Entries(l) = plt((l + colorIdx) Mod plt.Length)
+        For l As Integer = 0 To 255
+            pal.Entries(l) = plt(((l Mod colorCount) + colorIdx) Mod plt.Length)
         Next
         bmp.Palette = pal
         g.DrawImage(bmp, x, y)

@@ -3,11 +3,13 @@
     Public lvl As Level
     Public ed As Editor
     Private tileAnim As Byte() = Nothing
+    Private tileAnimChanged As Boolean
 
     Public Overloads Function ShowDialog(ByVal ed As Editor) As DialogResult
         Me.lvl = ed.EdControl.lvl
         Me.ed = ed
         tileAnim = Nothing
+        tileAnimChanged = False
         'Tiles
         addrTiles.Value = lvl.tileset.address
         cboTiles.SelectedIndex = Array.IndexOf(Pointers.Tilesets, lvl.tileset.address)
@@ -84,18 +86,17 @@
         End If
         'Bonuses
         lvl.bonuses.Sort()
-        lstCustomBonuses.Items.Clear()
+
         For l As Integer = 0 To lstBonuses.Items.Count - 1
             lstBonuses.SetItemChecked(l, False)
         Next
         For Each b As Integer In lvl.bonuses
             If b >= 8 And b <= 64 And b Mod 4 = 0 Then
                 lstBonuses.SetItemChecked(b \ 4 - 2, True)
-            Else
-                lstCustomBonuses.Items.Add(Hex(b))
             End If
         Next
         chkPltFade.Checked = False
+        cboTileAnim.SelectedIndex = -1
         For Each m As BossMonster In lvl.objects.BossMonsters
             'Palette fade
             If m.ptr = Pointers.SpBossMonsters(0) Then
@@ -180,7 +181,7 @@
 
     Private Sub cboMusic_SelectedIndexChanged(ByVal sender As Object, ByVal e As System.EventArgs) Handles cboMusic.SelectedIndexChanged
         If cboMusic.SelectedIndex = -1 Then Return
-        nudMusic.Value = cboMusic.SelectedIndex + 2
+        nudMusic.Value = Pointers.Musics(cboMusic.SelectedIndex)
     End Sub
 
 
@@ -234,7 +235,7 @@
         lvl.unknown = nudUnk.Value
         lvl.spritePal = addrSPal.Value
         lvl.tileset.pltAnimAddr = addrPAnim.Value
-        If cboPltAnim.SelectedIndex = 0 And radPAnimAuto.Checked Then lvl.tileset.pltAnimAddr = -1
+        If cboPltAnim.SelectedIndex = 0 And radPAnimAuto.Checked Then lvl.tileset.pltAnimAddr = 0
         lvl.music = nudMusic.Value
         lvl.sounds = nudMusic.Value
         lvl.unknown3 = nudUnk3.Value
@@ -244,9 +245,7 @@
                 lvl.bonuses.Add(l * 4 + 8)
             End If
         Next
-        For Each i As String In lstCustomBonuses.Items
-            lvl.bonuses.Add(CInt("&H" & i))
-        Next
+
         Dim m As Integer = 0
         Do Until m = lvl.objects.BossMonsters.Count
             If lvl.objects.BossMonsters(m).ptr = Pointers.SpBossMonsters(0) Then
@@ -258,20 +257,25 @@
             End If
         Loop
         If chkPltFade.Checked Then
-            Dim exData(7) As Byte
+            Dim exData(3) As Byte
             Array.Copy(Pointers.ToArray(addrPalF.Value), 0, exData, 0, 4)
             lvl.objects.BossMonsters.Add(New BossMonster(Pointers.SpBossMonsters(0), exData))
         End If
         If tileAnim IsNot Nothing Then
             lvl.objects.BossMonsters.Add(New BossMonster(Pointers.SpBossMonsters(1), tileAnim))
         End If
-        lvl.UpdateTileAnimation()
 
-        If reloadTileset Then
-            Dim s As New IO.FileStream(ed.r.path, IO.FileMode.Open, IO.FileAccess.Read, IO.FileShare.Read)
-            lvl.tileset.Reload(s)
-            ed.EdControl.TilePicker.LoadTileset(ed.EdControl.lvl.tileset)
-            s.Close()
+
+        If reloadTileset Or tileAnimChanged Then
+            lvl.ClearTileAnimation()
+            If reloadTileset Then
+                Dim s As New IO.FileStream(ed.r.path, IO.FileMode.Open, IO.FileAccess.Read, IO.FileShare.Read)
+                lvl.tileset.Reload(s)
+                ed.EdControl.TilePicker.LoadTileset(ed.EdControl.lvl.tileset)
+                s.Close()
+            End If
+            lvl.LoadTileAnimation()
+            ed.EdControl.TilePicker.Invalidate(True)
         End If
         If reloadSprites Then
             Dim s As New IO.FileStream(ed.r.path, IO.FileMode.Open, IO.FileAccess.Read, IO.FileShare.Read)
@@ -287,35 +291,21 @@
         Me.Close()
     End Sub
 
-    Private Sub btnAddBonus_Click(ByVal sender As System.Object, ByVal e As System.EventArgs) Handles btnAddBonus.Click
-        If Not lstCustomBonuses.Items.Contains(Hex(nudCustBonus.Value)) And Not (nudCustBonus.Value >= 4 And nudCustBonus.Value <= 32 And nudCustBonus.Value Mod 2 = 0) Then
-            lstCustomBonuses.Items.Add(Hex(nudCustBonus.Value))
-        End If
-    End Sub
-
-    Private Sub btnDeleteBonus_Click(ByVal sender As System.Object, ByVal e As System.EventArgs) Handles btnDeleteBonus.Click
-        Dim items As New List(Of String)
-        For Each i As String In lstCustomBonuses.SelectedItems
-            items.Add(i)
-        Next
-        For Each i As String In items
-            lstCustomBonuses.Items.Remove(i)
-        Next
-    End Sub
 
     Private Sub btnDeleteTileAnim_Click(sender As System.Object, e As System.EventArgs) Handles btnDeleteTileAnim.Click
         btnDeleteTileAnim.Enabled = False
         btnExportTileAnim.Enabled = False
         tileAnim = Nothing
+        tileAnimChanged = True
     End Sub
 
     Private Sub btnExportTileAnim_Click(sender As System.Object, e As System.EventArgs) Handles btnExportTileAnim.Click
         If saveTileAnim.ShowDialog() = Windows.Forms.DialogResult.OK Then
             For i As Integer = 0 To tileAnim.Length - 2 Step 2
-                If tileAnim(i) = 0 And tileAnim(i + 1) = 0 Then
+                If tileAnim(i) = 0 And tileAnim(i + 1) = 0 And tileAnim(i + 2) = 0 And tileAnim(i + 3) = 0 Then
                     Try
                         Dim fs As New IO.FileStream(saveTileAnim.FileName, IO.FileMode.Create, IO.FileAccess.Write)
-                        fs.Write(tileAnim, i + 2, tileAnim.Length - (i + 2))
+                        fs.Write(tileAnim, i + 4, tileAnim.Length - (i + 4))
                         fs.Close()
                     Catch ex As Exception
                         MsgBox("Failed to export:" & Environment.NewLine & ex.Message)
@@ -327,15 +317,15 @@
         End If
     End Sub
 
-    Dim tileAnimPresets As String() = {"d9010700f9000700e0000700d901ffffd1010700d301070075010700d101ffffcb010700de0107008e010700cb01ffffa80107008d010700a3010700a801ffff", _
-                                       "d9010700f9000700e0000700d901ffffe5010700e6010700d2010700e501ffffde0107008e010700cb010700de01ffffdd010700be010700dd01ffffed010700ee010700ef010700ed01ffff", _
-                                       "2301640021012900230109002301ffff22016700f3002700220108002201ffff1f006a00560003007b001e00560003001f0008001f00ffff54006d0056001e0054000b005400ffff34016400550032003401ffff", _
-                                       "c501030065005000c6010300cb010300c5010300c6010300cc010300cb010300c5010300c6010300cc010300c601ffffc801030065003c00c8010300c9010300c8010300c9010300c8010300c9010300c8010300c9010300c8010300c901ffffc701030065005000c7011b00c701ffffc901030066013c00c9010300c8010300c9010300c8010300c9010300c8010300c9010300c8010300c9010300c801ffffcc01030065000300cb010300c5010300c6010300cc010300cb010300c5010300c601030065006400cb010300cc01ffffcd011b0065006400cd010300cd01ffff", _
-                                       "c0015a00c3010500c4010500e5015a00c4010500c3010500c0016400c001ffffc1015a00c4010500c3010500c1016400c1015a00c3010500c4010500e501ffffc2016400c2015a00c3010500c4010500e5015a00c4010500c3010500c201ffff5e0064005e006400180064001800ffff5f006400180064005f0064001800ffff", _
-                                       "c0015a00c3010500c4010500e5015a00c4010500c3010500c0016400c001ffffc1015a00c4010500c3010500c1012800c1012800c3010500c4010500e501ffffc2016400c2015a00c3010500c4010500e5015a00c4010500c3010500c201ffff5e0064005e006400180064001800ffff5f006400180064005f0064001800ffff", _
-                                       "f301bc02ff01f401fd01c800f801fefff401d007fc018e01f901fefff501ed0afd016400fa01fefff6011c0cfb01feff7400860bff013200fd01c800fc01fefff701480dff01feff", _
-                                       "f301c409ff019808fd01c800f801fefff401d80efc014a04f901fefff501f511fd012c01fa01fefff6012413fb01feff74008e12ff01c800fd01c800fc01fefff7015014ff01feff", _
-                                       "f301e40cff019808fd01c800f801fefff401f811fc014a04f901fefff5011515fd012c01fa01fefff6014416fb01feff7400ae15ff01c800fd01c800fc01fefff7017017ff01feff"}
+    Dim tileAnimPresets As String() = {"01D9000700F9000700E0000701D9FFFF01D1000701D300070175000701D1FFFF01CB000701DE0007018E000701CBFFFF01A80007018D000701A3000701A8FFFF",
+                                       "01D9000700F9000700E0000701D9FFFF01E5000701E6000701D2000701E5FFFF01DE0007018E000701CB000701DEFFFF01DD000701BE000701DDFFFF01ED000701EE000701EF000701EDFFFF",
+                                       "0123006401210029012300090123FFFF0122006700F30027012200080122FFFF001F006A00560003007B001E00560003001F0008001FFFFF0054006D0056001E0054000B0054FFFF01340064005500320134FFFF",
+                                       "01C500030065005001C6000301CB000301C5000301C6000301CC000301CB000301C5000301C6000301CC000301C6FFFF01C800030065003C01C8000301C9000301C8000301C9000301C8000301C9000301C8000301C9000301C8000301C9FFFF01C700030065005001C7001B01C7FFFF01C900030166003C01C9000301C8000301C9000301C8000301C9000301C8000301C9000301C8000301C9000301C8FFFF01CC00030065000301CB000301C5000301C6000301CC000301CB000301C5000301C600030065006401CB000301CCFFFF01CD001B0065006401CD000301CDFFFF",
+                                       "01C0005A01C3000501C4000501E5005A01C4000501C3000501C0006401C0FFFF01C1005A01C4000501C3000501C1006401C1005A01C3000501C4000501E5FFFF01C2006401C2005A01C3000501C4000501E5005A01C4000501C3000501C2FFFF005E0064005E0064001800640018FFFF005F006400180064005F00640018FFFF",
+                                       "01C0005A01C3000501C4000501E5005A01C4000501C3000501C0006401C0FFFF01C1005A01C4000501C3000501C1002801C1002801C3000501C4000501E5FFFF01C2006401C2005A01C3000501C4000501E5005A01C4000501C3000501C2FFFF005E0064005E0064001800640018FFFF005F006400180064005F00640018FFFF",
+                                       "01F302BC01FF01F401FD00C801F8FFFE01F407D001FC018E01F9FFFE01F50AED01FD006401FAFFFE01F60C1C01FBFFFE00740B8601FF003201FD00C801FCFFFE01F70D4801FFFFFE",
+                                       "0001F30CE401FF089801FD00C801F8FFFE01F411F801FC044A01F9FFFE01F5151501FD012C01FAFFFE01F6164401FBFFFE007415AE01FF00C801FD00C801FCFFFE01F7177001FFFFFE",
+                                       "0001F30DAC01FF089801FD00C801F8FFFE01F412C001FC044A01F9FFFE01F515DD01FD012C01FAFFFE01F6170C01FBFFFE0074167601FF00C801FD00C801FCFFFE01F7183801FFFFFE"}
 
     Private Sub btnPresetTileAnim_Click(sender As System.Object, e As System.EventArgs) Handles btnPresetTileAnim.Click
         If cboTileAnim.SelectedIndex > -1 Then
@@ -363,18 +353,22 @@
     Private Sub UseTileAnim(ByVal data As Byte())
         Dim count As Integer = 0
         For i As Integer = 0 To data.Length - 2 Step 2
-            If data(i) + data(i + 1) * &H100 >= &HFFFE Then
+            If data(i) * &H100 + data(i + 1) >= &HFFFE Then
                 count += 1
             End If
         Next
-        tileAnim = New Byte(count * 2 + 2 + data.Length - 1) {}
+        tileAnim = New Byte(count * 4 + 4 + data.Length - 1) {}
         For i As Integer = 0 To count - 1
-            tileAnim(i * 2) = &H11 'Any value other than 0 would work here
-            tileAnim(i * 2 + 1) = &H11
+            tileAnim(i * 4) = &H11 'Any value other than 0 would work here
+            tileAnim(i * 4 + 1) = &H11
+            tileAnim(i * 4 + 2) = &H11
+            tileAnim(i * 4 + 3) = &H11
         Next
-        tileAnim(count * 2) = 0
-        tileAnim(count * 2 + 1) = 0
-        Array.Copy(data, 0, tileAnim, count * 2 + 2, data.Length)
+        tileAnim(count * 4) = 0
+        tileAnim(count * 4 + 1) = 0
+        tileAnim(count * 4 + 2) = 0
+        tileAnim(count * 4 + 3) = 0
+        Array.Copy(data, 0, tileAnim, count * 4 + 4, data.Length)
 
         btnDeleteTileAnim.Enabled = True
         btnExportTileAnim.Enabled = True

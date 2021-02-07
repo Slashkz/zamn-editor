@@ -8,12 +8,17 @@ Public Class TitleGFX
 
     Public Sub New(ByVal fs As IO.FileStream)
         fs.Seek(Pointers.TitlePalette, IO.SeekOrigin.Begin)
-        plt = SMDGFX.ReadPalette(fs, &H40, False)
+        Dim Count As Integer = Pointers.ReadPointer(fs)
+        plt = SMDGFX.ReadPalette(fs, Count, False)
         fs.Seek(Pointers.TitleGraphics, IO.SeekOrigin.Begin)
         Dim GFX As Byte() = ZAMNCompress.Decompress(fs)
-        Dim LinGFX(511)(,) As Byte
-        For l As Integer = 0 To &H1E8 'It used to go up to 511, but I think only 0x1E9 tiles actually exist
-            LinGFX(l) = SMDGFX.GetTile(GFX, l * &H20)
+        'Dim LinGFX(511)(,) As Byte
+        'For l As Integer = 0 To &H1E8 'It used to go up to 511, but I think only 0x1E9 tiles actually exist
+        'LinGFX(l) = SMDGFX.GetTile(GFX, l * &H20)
+        'Next
+        Dim LineGFX(GFX.Length \ &H20 - 1)(,) As Byte
+        For l As Integer = 0 To LineGFX.Length - 1
+            LineGFX(l) = SMDGFX.GetTile(GFX, l * &H20)
         Next
         Dim tilePos(&H5E) As Point
         fs.Seek(Pointers.TitleCharWidth, IO.SeekOrigin.Begin)
@@ -39,7 +44,7 @@ Public Class TitleGFX
 
             For y As Integer = 0 To 5
                 For x As Integer = 0 To width - 1
-                    SMDGFX.DrawTile(imgData, x * 8, y * 8, Map(index), Map(index + 1), LinGFX)
+                    SMDGFX.DrawTile(imgData, x * 8, y * 8, Map(index), Map(index + 1), LineGFX)
                     index += 2
                 Next
                 index += (&H100 - width * 2)
